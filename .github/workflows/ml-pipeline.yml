@@ -1,0 +1,115 @@
+# =============================================================================
+# ML Pipeline CI/CD
+# Runs on every push/PR — validates data, models, ensembles, submissions
+# =============================================================================
+name: ML Pipeline
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'data/**'
+      - 'outputs/**'
+      - 'notebooks/**'
+      - 'submission*.csv'
+      - 'scripts/**'
+      - '.pre-commit-config.yaml'
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── DATA QUALITY ───
+  data-audit:
+    name: "📊 Data Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install pandas numpy scipy
+      - name: Run Data Audit
+        run: python hooks/run_data_audit.py data/raw/*.csv
+        if: ${{ hashFiles('data/raw/*.csv') != '' }}
+
+  # ─── NOTEBOOK CHECK ───
+  notebook-check:
+    name: "📓 Notebook Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install nbformat
+      - name: Check notebooks
+        run: python hooks/check_notebook.py notebooks/*.ipynb
+        if: ${{ hashFiles('notebooks/*.ipynb') != '' }}
+
+  # ─── ENSEMBLE DIVERSITY ───
+  ensemble-diversity:
+    name: "🎯 Ensemble Diversity"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install numpy scipy
+      - name: Check Ensemble Diversity
+        run: python hooks/check_ensemble_diversity.py outputs/oof/*.npy
+        if: ${{ hashFiles('outputs/oof/*.npy') != '' }}
+
+  # ─── SUBMISSION GUARD ───
+  submission-guard:
+    name: "🛡️ Submission Guard"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install pandas numpy
+      - name: Check Submission
+        run: python hooks/run_submission_guard.py submission*.csv
+        if: ${{ hashFiles('submission*.csv') != '' }}
+
+  # ─── JUDGE GUARD VERIFY ───
+  judge-guard:
+    name: "🔒 Judge Guard"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run Judge Guard
+        run: python hooks/run_judge_guard.py outputs/*.json
+        if: ${{ hashFiles('outputs/*.json') != '' }}
+
+  # ─── FULL PIPELINE (nightly) ───
+  full-pipeline:
+    name: "🚀 Full Pipeline (Nightly)"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [data-audit]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install pandas numpy scipy scikit-learn matplotlib seaborn
+      - name: Run Full Pipeline
+        run: python pipeline/orchestrate.py --full

@@ -1,0 +1,100 @@
+# =============================================================================
+# Pre-Commit Configuration — ML Skills Pipeline
+# Every hook maps to an installed skill in ~/.qwen/skills/
+# =============================================================================
+
+repos:
+  # ─── UNIVERSAL FILE CHECKS ───
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files    # block >500MB files
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # ─── PYTHON CODE QUALITY ───
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # ─── NOTEBOOK QUALITY (data-analysis-jupyter skill) ───
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa-ruff
+      - id: nbqa-check-ast
+
+  # ─── SECRET DETECTION ───
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.1
+    hooks:
+      - id: gitleaks
+
+  # ─── SKILL-TRIGGERED LOCAL HOOKS ───
+  - repo: local
+    hooks:
+
+      # DATA AUDIT → data-audit skill
+      # Triggers when any .csv or .parquet file is committed
+      - id: data-audit
+        name: "📊 Data Audit (data-audit skill)"
+        entry: python hooks/run_data_audit.py
+        language: system
+        files: \.(csv|parquet)$
+        pass_filenames: true
+        verbose: true
+
+      # SUBMISSION GUARD → kaggle-submit skill
+      # Triggers when submission*.csv is committed
+      - id: submission-guard
+        name: "🛡️ Submission Guard (kaggle-submit skill)"
+        entry: python hooks/run_submission_guard.py
+        language: system
+        files: submission.*\.csv$
+        pass_filenames: true
+        verbose: true
+
+      # JUDGE GUARD VERIFY → judge-guard-verify skill
+      # Triggers when output JSON files change
+      - id: judge-guard
+        name: "🔒 Judge Guard (judge-guard-verify skill)"
+        entry: python hooks/run_judge_guard.py
+        language: system
+        files: outputs/.*\.json$
+        pass_filenames: true
+        verbose: true
+
+      # ENSEMBLE DIVERSITY → ml-ensemble skill
+      # Triggers when OOF prediction files change
+      - id: ensemble-diversity
+        name: "🎯 Ensemble Diversity (ml-ensemble skill)"
+        entry: python hooks/check_ensemble_diversity.py
+        language: system
+        files: oof/.*\.npy$
+        pass_filenames: true
+        verbose: true
+
+      # NOTEBOOK REPRODUCIBILITY → data-analysis-jupyter skill
+      # Triggers when .ipynb files change
+      - id: notebook-check
+        name: "📓 Notebook Check (data-analysis-jupyter skill)"
+        entry: python hooks/check_notebook.py
+        language: system
+        files: \.ipynb$
+        pass_filenames: true
+        verbose: true
+
+  # ─── COMMIT MESSAGE FORMAT ───
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [feat, fix, docs, style, refactor, test, chore, experiment]
