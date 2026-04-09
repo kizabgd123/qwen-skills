@@ -16,33 +16,83 @@ WORKFLOW_PATH = Path(__file__).parent.parent / ".github" / "workflows" / "summar
 
 @pytest.fixture(scope="module")
 def workflow() -> dict:
-    """Load and parse the summary workflow YAML."""
+    """
+    Load and parse the repository's summary GitHub Actions workflow YAML.
+    
+    Returns:
+        dict: Parsed YAML content of the workflow file at WORKFLOW_PATH.
+    """
     with open(WORKFLOW_PATH) as f:
         return yaml.safe_load(f)
 
 
 @pytest.fixture(scope="module")
 def summary_job(workflow: dict) -> dict:
+    """
+    Return the mapping for the `summary` job from a parsed GitHub Actions workflow.
+    
+    Parameters:
+        workflow (dict): Parsed workflow structure (as loaded by `yaml.safe_load`) representing the top-level workflow document.
+    
+    Returns:
+        dict: The dictionary value of `workflow["jobs"]["summary"]`.
+    """
     return workflow["jobs"]["summary"]
 
 
 @pytest.fixture(scope="module")
 def steps(summary_job: dict) -> list:
+    """
+    Return the list of steps from a workflow job definition.
+    
+    Parameters:
+    	summary_job (dict): Parsed job mapping from the workflow YAML (expected to contain a "steps" key).
+    
+    Returns:
+    	steps (list): The list of step dictionaries found under the job's "steps" key.
+    """
     return summary_job["steps"]
 
 
 @pytest.fixture(scope="module")
 def checkout_step(steps: list) -> dict:
+    """
+    Return the first step from a job's steps list, expected to be the repository checkout step.
+    
+    Parameters:
+        steps (list): Sequence of step dictionaries from a workflow job's "steps" field.
+    
+    Returns:
+        dict: The first step dictionary (checkout step).
+    """
     return steps[0]
 
 
 @pytest.fixture(scope="module")
 def inference_step(steps: list) -> dict:
+    """
+    Retrieve the inference (AI) step from a workflow's steps list.
+    
+    Parameters:
+        steps (list): List of step mappings as parsed from the workflow job's `steps` sequence.
+    
+    Returns:
+        dict: The step dictionary at index 1 representing the AI inference step.
+    """
     return steps[1]
 
 
 @pytest.fixture(scope="module")
 def comment_step(steps: list) -> dict:
+    """
+    Get the comment step (third step) from a job's steps list.
+    
+    Parameters:
+        steps (list): List of step mappings as parsed from the workflow job's `steps`.
+    
+    Returns:
+        dict: The third step dictionary, expected to be the comment step.
+    """
     return steps[2]
 
 
@@ -78,6 +128,12 @@ class TestWorkflowTrigger:
         assert "issues" in trigger, "Workflow must trigger on 'issues' events"
 
     def test_trigger_type_is_opened(self, workflow):
+        """
+        Verify the workflow's issues trigger includes the "opened" event.
+        
+        Parameters:
+            workflow (dict): Parsed YAML object for the workflow file.
+        """
         types = workflow[True]["issues"]["types"]
         assert "opened" in types, "Workflow must trigger on issues.opened"
 
@@ -105,6 +161,11 @@ class TestJobConfiguration:
         assert "summary" in workflow["jobs"]
 
     def test_only_one_job(self, workflow):
+        """
+        Asserts the workflow defines exactly one job.
+        
+        If the assertion fails, the error message includes the names of the jobs found.
+        """
         assert len(workflow["jobs"]) == 1, (
             f"Expected exactly 1 job, found: {list(workflow['jobs'].keys())}"
         )
@@ -181,6 +242,11 @@ class TestInferenceStep:
         assert inference_step["uses"] == "actions/ai-inference@v1"
 
     def test_has_id_inference(self, inference_step):
+        """
+        Verify the inference step is assigned the id "inference".
+        
+        Asserts that the `inference_step` fixture has an `"id"` key with the value `"inference"`.
+        """
         assert inference_step.get("id") == "inference"
 
     def test_has_prompt(self, inference_step):
@@ -202,7 +268,11 @@ class TestInferenceStep:
         )
 
     def test_prompt_instructs_not_to_follow_instructions(self, inference_step):
-        """Prompt must tell the model not to follow user-supplied instructions."""
+        """
+        Asserts the inference prompt instructs the model not to follow user-supplied instructions.
+        
+        Checks that the prompt (case-insensitive) contains either "do not follow instructions" or "not follow instructions".
+        """
         prompt = inference_step["with"]["prompt"].lower()
         assert "do not follow instructions" in prompt or "not follow instructions" in prompt
 
@@ -234,7 +304,11 @@ class TestCommentStep:
         )
 
     def test_run_references_response_via_env(self, comment_step):
-        """RESPONSE should be passed via env var, not inline expression."""
+        """
+        Assert the comment step's run script references the inference response via the $RESPONSE environment variable.
+        
+        This test ensures the GitHub CLI command uses the environment variable (``$RESPONSE``) rather than inlining the inference output directly into the script.
+        """
         run_script = comment_step.get("run", "")
         assert "$RESPONSE" in run_script, (
             "gh command must reference RESPONSE via env var for safety"
@@ -277,8 +351,9 @@ class TestCommentStep:
 class TestSecurityProperties:
     def test_no_raw_expressions_in_any_run_script(self, steps):
         """
-        Regression: no step's run script should contain raw ${{ }} expressions.
-        All dynamic values must flow through env vars to prevent script injection.
+        Ensure no step's shell `run` script contains literal GitHub expression delimiters.
+        
+        Asserts that the substring "${{" does not appear in any step's `run` value to prevent inlining `${{ ... }}` expressions into shell scripts.
         """
         for step in steps:
             run_script = step.get("run", "")
@@ -287,7 +362,11 @@ class TestSecurityProperties:
             )
 
     def test_no_secrets_hardcoded_in_workflow(self):
-        """Workflow file must not contain hardcoded secret values."""
+        """
+        Ensure the workflow file contains no hardcoded GitHub personal access tokens.
+        
+        Searches the raw workflow text for token-like strings matching the pattern `ghp_[A-Za-z0-9]+` that are not part of a GitHub Actions expression (i.e., not preceded by `${{`) and fails the test if any such occurrences are found.
+        """
         raw_content = WORKFLOW_PATH.read_text()
         # Look for patterns that suggest hardcoded tokens (not the expression syntax)
         suspicious = re.findall(r'(?<!\$\{\{)\bghp_[A-Za-z0-9]+\b', raw_content)
@@ -316,5 +395,7 @@ class TestSecurityProperties:
         assert summary_job["permissions"]["models"] == "read"
 
     def test_issues_permission_is_write_not_admin(self, summary_job):
-        """Issues permission should be write, not admin."""
+        """
+        Assert that the job's 'issues' permission is set to "write".
+        """
         assert summary_job["permissions"]["issues"] == "write"
